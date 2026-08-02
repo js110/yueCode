@@ -8,6 +8,8 @@ Yue 是我自用的，基于事件驱动架构的 agent。你的每一次对话�
 
 Yue 的表壳来源于 Pi -> Yue, 感谢 Pi 的开源。
 
+Yue 是 [pizza](https://github.com/tomsun28/pizza) 的一个 fork。pizza 是一个开源的事件驱动编码 agent。向它致敬：Reactor 驱动的 turn 循环、SQLite 事件存储、单 CLI 工具的设计，都继承自它。我们站在原作者的肩膀上，也站在更早的 Pi 项目之上。
+
 - **Reactor 驱动的 turn 循环**
   区别于 `Pi, Claude Code, Codex`，Yue 没有用一个脆弱的 `while true` 循环来跑 agent 主循环。每一次 turn 都是一张事件-处理器表驱动的状态机。结果是：中断、重试、并行工具调用、turn 内失败都能被可靠处理。
 

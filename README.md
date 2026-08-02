@@ -8,6 +8,8 @@ Yue is my personal, event-driven agent. Every conversation, tool call, and file 
 
 Yue’s shell comes from Pi -> Yue. Thanks to Pi for open sourcing.
 
+Yue is a fork of [pizza](https://github.com/tomsun28/pizza), an open-source event-driven coding agent. It pays tribute to pizza: the reactor-driven turn loop, the SQLite event store, and the single-CLI-tool design are all inherited from it. We stand on the shoulders of the original author and the Pi project that came before it.
+
 - **Reactor-driven turn cycle**
   Unlike `Pi, Claude Code, and Codex`, Yue does not run the agent loop as a brittle `while true` loop. Each turn is a state machine driven by an event-handler table. The result: interrupts, retries, parallel tool calls, and mid-turn failures can all be handled reliably.
 
@@ -43,5 +45,3 @@ yue
 ```
 
 ---
-
-![desktop](./resources/yue-desktop-white.png)
