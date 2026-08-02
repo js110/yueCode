@@ -120,6 +120,20 @@ export function getThemesDir(): string {
 }
 
 /**
+ * Get path to bundled built-in skills directory (shipped with package).
+ * - For Bun binary: builtin-skills/ next to executable
+ * - For Node.js (dist/): dist/src/builtin-skills/
+ * - For tsx (src/): src/builtin-skills/
+ */
+export function getBundledSkillsDir(): string {
+	if (isBunBinary) {
+		return join(getPackageDir(), "builtin-skills");
+	}
+	// __dirname is always dist/src/ or src/ — builtin skills live at the same relative path from either
+	return join(__dirname, "builtin-skills");
+}
+
+/**
  * Get path to HTML export template directory (shipped with package)
  * - For Bun binary: export-html/ next to executable
  * - For Node.js (dist/): dist/core/export-html/

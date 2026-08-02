@@ -21,6 +21,7 @@ import type { Skill } from "./skills.js";
 import { loadSkills } from "./skills.js";
 import { createSourceInfo, type SourceInfo } from "./source-info.js";
 import { getBuiltinExtensionFactories, type BuiltinExtension } from "../builtin-extensions/index.js";
+import { getBuiltinSkills } from "../builtin-skills/index.js";
 
 export interface ResourceExtensionPaths {
 	skillPaths?: Array<{ path: string; metadata: PathMetadata }>;
@@ -138,6 +139,8 @@ export interface DefaultResourceLoaderOptions {
 	noExtensions?: boolean;
 	/** Skip loading built-in extensions (agent-browser, …). Default: false. */
 	noBuiltinExtensions?: boolean;
+	/** Skip loading built-in skills (grilling, …). Default: false. */
+	noBuiltinSkills?: boolean;
 	noSkills?: boolean;
 	noPromptTemplates?: boolean;
 	noThemes?: boolean;
@@ -183,6 +186,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private extensionFactories: ExtensionFactory[];
 	private noExtensions: boolean;
 	private noBuiltinExtensions: boolean;
+	private noBuiltinSkills: boolean;
 	private noSkills: boolean;
 	private noPromptTemplates: boolean;
 	private noThemes: boolean;
@@ -247,6 +251,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.extensionFactories = options.extensionFactories ?? [];
 		this.noExtensions = options.noExtensions ?? false;
 		this.noBuiltinExtensions = options.noBuiltinExtensions ?? false;
+		this.noBuiltinSkills = options.noBuiltinSkills ?? false;
 		this.noSkills = options.noSkills ?? false;
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
 		this.noThemes = options.noThemes ?? false;
@@ -570,6 +575,36 @@ export class DefaultResourceLoader implements ResourceLoader {
 				includeDefaults: false,
 			});
 		}
+
+		// Merge built-in skills. They are always present unless disabled in
+		// settings (disabledBuiltinSkills), this loader opts out entirely
+		// (noBuiltinSkills), or skills are disabled wholesale (noSkills). A user
+		// skill with the same name wins over a built-in.
+		if (!this.noBuiltinSkills && !this.noSkills) {
+			const disabledBuiltins = this.settingsManager.getDisabledBuiltinSkills();
+			const builtinSkills = getBuiltinSkills(disabledBuiltins);
+			const existingNames = new Set(skillsResult.skills.map((s) => s.name));
+			for (const builtinSkill of builtinSkills) {
+				if (existingNames.has(builtinSkill.name)) {
+					const existing = skillsResult.skills.find((s) => s.name === builtinSkill.name)!;
+					skillsResult.diagnostics.push({
+						type: "collision",
+						message: `built-in skill "${builtinSkill.name}" collides with a user skill of the same name; the user skill wins`,
+						path: builtinSkill.filePath,
+						collision: {
+							resourceType: "skill",
+							name: builtinSkill.name,
+							winnerPath: existing.filePath,
+							loserPath: builtinSkill.filePath,
+						},
+					});
+					continue;
+				}
+				skillsResult.skills.push(builtinSkill);
+				existingNames.add(builtinSkill.name);
+			}
+		}
+
 		const resolvedSkills = this.skillsOverride ? this.skillsOverride(skillsResult) : skillsResult;
 		this.skills = resolvedSkills.skills.map((skill) => ({
 			...skill,
