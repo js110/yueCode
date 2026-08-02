@@ -28,6 +28,58 @@ Yue is a fork of [pizza](https://github.com/tomsun28/pizza), an open-source even
 - **Git log-like branch tree memory**
   Sessions can fork from any earlier message. Rewind, branch, compare. Restart your life anytime, anywhere.
 
+- **Sub-agent graph workflows**
+  The main agent can orchestrate multi-step delegation with `_workflow`: a JSON DAG of `delegate` / `verify` / `synthesize` nodes is saved under the agent dir and re-run by name, with zero-token coordination — the definition is the plan. Only sub-agents' final replies enter your context.
+
+## Sub-Agent Workflow (Graph DAGs)
+
+Beyond single delegations, Yue lets the persistent (main) agent orchestrate multi-step sub-agent graphs. A workflow is a JSON DAG of nodes:
+
+- `delegate` — fan a task out to every project directory (requires `task`).
+- `verify` — spawn a fresh verifier per directory that checks acceptance criteria (requires `criteria`).
+- `synthesize` — one fresh agent reviews all upstream outputs (requires `task` + 1 cwd).
+
+Workflows are persisted as one JSON file per workflow under `<agentDir>/workflows/<name>.json`, so a saved graph can be re-run by name. Nodes whose `dependsOn` are satisfied run in parallel; per-target spawn failures are recorded without aborting the graph, so a `verify` node can still check partial work.
+
+```json
+{
+  "name": "fix-auth",
+  "description": "Fix the auth bug across projects",
+  "nodes": [
+    {
+      "id": "workers",
+      "kind": "delegate",
+      "cwds": ["../proj-a", "../proj-b"],
+      "task": "fix the auth bug and summarize the change"
+    },
+    {
+      "id": "check",
+      "kind": "verify",
+      "cwds": ["../proj-a", "../proj-b"],
+      "criteria": "the auth fix lands and all tests pass",
+      "dependsOn": ["workers"]
+    },
+    {
+      "id": "report",
+      "kind": "synthesize",
+      "cwds": ["."],
+      "task": "summarize the overall status of the auth fix across all projects",
+      "dependsOn": ["check"]
+    }
+  ]
+}
+```
+
+```bash
+_workflow list
+_workflow save fix-auth --definition '{...}'   # or the <<EOF heredoc form
+_workflow run fix-auth
+_workflow show fix-auth
+_workflow delete fix-auth
+```
+
+`_delegate_agent` and `_workflow` are only available to the main (persistent) agent. Each sub-agent runs in its own workspace (independent event store), and only its final reply is returned — intermediate output stays out of the main context.
+
 ## Quick Start
 
 ### Desktop

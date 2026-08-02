@@ -28,6 +28,58 @@ Yue 是 [pizza](https://github.com/tomsun28/pizza) 的一个 fork。pizza 是一
 - **Git Log 一样的分支树记忆**
   会话可以从任意一条历史消息分叉。回退、分支、对比。随时随地重开人生。  
 
+- **子代理图工作流**
+  主 agent 可以用 `_workflow` 编排多步委托：一个由 `delegate` / `verify` / `synthesize` 节点组成的 JSON DAG 会保存到 agent 目录下，可以按名字反复运行，零 token 协调 —— 定义即计划。只有子代理的最终回复会进入你的上下文。
+
+## 子代理工作流（图 DAG）
+
+除了单次委托，Yue 还让持久化主 agent 可以编排多步子代理图。一个工作流就是一张节点 JSON DAG：
+
+- `delegate` —— 把任务扇出到每个项目目录（需要 `task`）。
+- `verify` —— 为每个目录生成一个全新的验证器，检查验收标准（需要 `criteria`）。
+- `synthesize` —— 一个全新 agent 审查所有上游输出（需要 `task` + 1 个 cwd）。
+
+工作流以每个工作流一个 JSON 文件的形式持久化在 `<agentDir>/workflows/<name>.json`，所以保存过的图可以按名字重新运行。`dependsOn` 满足的节点并行运行；每个目标的生成失败会被记录下来但不会中止整个图，因此 `verify` 节点仍然可以检查部分完成的工作。
+
+```json
+{
+  "name": "fix-auth",
+  "description": "Fix the auth bug across projects",
+  "nodes": [
+    {
+      "id": "workers",
+      "kind": "delegate",
+      "cwds": ["../proj-a", "../proj-b"],
+      "task": "fix the auth bug and summarize the change"
+    },
+    {
+      "id": "check",
+      "kind": "verify",
+      "cwds": ["../proj-a", "../proj-b"],
+      "criteria": "the auth fix lands and all tests pass",
+      "dependsOn": ["workers"]
+    },
+    {
+      "id": "report",
+      "kind": "synthesize",
+      "cwds": ["."],
+      "task": "summarize the overall status of the auth fix across all projects",
+      "dependsOn": ["check"]
+    }
+  ]
+}
+```
+
+```bash
+_workflow list
+_workflow save fix-auth --definition '{...}'   # 也可以用 <<EOF heredoc 形式
+_workflow run fix-auth
+_workflow show fix-auth
+_workflow delete fix-auth
+```
+
+`_delegate_agent` 和 `_workflow` 只有主（持久化）agent 可用。每个子代理运行在自己的工作区（独立事件存储）里，只有它的最终回复会被返回 —— 中间输出不会进入主 agent 的上下文。
+
 ## 快速开始
 
 ### 桌面应用
