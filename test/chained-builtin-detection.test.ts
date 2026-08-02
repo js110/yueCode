@@ -48,6 +48,10 @@ describe("detectChainedBuiltin", () => {
 		expect(detectChainedBuiltin("foo && _delegate_agent list")).toBe("_delegate_agent");
 	});
 
+	it("recognizes _workflow", () => {
+		expect(detectChainedBuiltin("foo && _workflow run fix-auth")).toBe("_workflow");
+	});
+
 	it("returns null for a normal shell command", () => {
 		expect(detectChainedBuiltin("grep -rn foo . | head")).toBeNull();
 		expect(detectChainedBuiltin("git status && git diff")).toBeNull();

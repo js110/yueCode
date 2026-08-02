@@ -35,6 +35,7 @@ import { createHistoryTreeToolDefinition, type HistoryTreeToolInput } from "./hi
 import { createSessionSplitToolDefinition, type SessionSplitToolInput } from "./session-split.js";
 import { createDelegateAgentToolDefinition, type DelegateAgentToolInput, type DelegateAgentToolOptions } from "./delegate-agent.js";
 import { createWriteToolDefinition, type WriteToolInput, type WriteToolOptions } from "./write.js";
+import { createWorkflowToolDefinition, type WorkflowToolInput, type WorkflowToolOptions } from "./workflow.js";
 
 /**
  * Generate a unique temp file path for bash output.
@@ -86,6 +87,11 @@ export type BashBuiltinDetails =
 	| {
 			name: "delegate_agent";
 			args: DelegateAgentToolInput;
+			details?: undefined;
+	  }
+	| {
+			name: "workflow";
+			args: WorkflowToolInput;
 			details?: undefined;
 	  };
 
@@ -208,6 +214,8 @@ export interface BashToolOptions {
 	edit?: EditToolOptions;
 	/** Options for the built-in delegate_agent command (main agent only). When set, the cli tool routes `delegate_agent` to the delegate_agent definition. */
 	delegateAgent?: DelegateAgentToolOptions;
+	/** Options for the built-in workflow command (main agent only). When set, the cli tool routes `workflow` to the workflow definition. */
+	workflow?: WorkflowToolOptions;
 	/** Command prefix prepended to every command (for example shell setup commands) */
 	commandPrefix?: string;
 	/** Optional explicit shell path from settings */
@@ -488,7 +496,8 @@ export function createBashToolDefinition(
 	const sessionSplitDefinition = createSessionSplitToolDefinition();
 	const historyTreeDefinition = createHistoryTreeToolDefinition();
 	const delegateAgentDefinition = options?.delegateAgent ? createDelegateAgentToolDefinition(options.delegateAgent) : undefined;
-	/** Map of built-in command name → definition. delegate_agent is only present for the main agent. */
+	const workflowDefinition = options?.workflow ? createWorkflowToolDefinition(options.workflow) : undefined;
+	/** Map of built-in command name → definition. delegate_agent and workflow are only present for the main agent. */
 	const builtinDefinitions: Record<string, ToolDefinition<any, any, any> | undefined> = {
 		read: readDefinition,
 		write: writeDefinition,
@@ -496,12 +505,13 @@ export function createBashToolDefinition(
 		session_split: sessionSplitDefinition,
 		history_tree: historyTreeDefinition,
 		delegate_agent: delegateAgentDefinition,
+		workflow: workflowDefinition,
 	};
 	return {
 		name: "cli",
 		label: "cli",
-		description: `Execute a CLI command in the current working directory. Built-in commands are prefixed with an underscore and handled internally (they never fall back to the shell): _read, _write, _edit, _session_split, _history_tree, and (for the main agent) _delegate_agent. The underscore prefix avoids collisions with real shell commands (e.g. bash's own read/write builtins). IMPORTANT: built-in commands do NOT support shell operators — no pipes (|), redirects (> <), chaining (; & &&), command substitution, or newlines; issue each as a single pure command. To use a pipeline or redirection, run a plain shell command instead (grep, find, ls, cat, sed, git, npm, etc.). Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB.`,
-		promptSnippet: "Execute CLI commands: built-ins are prefixed with _ (_read/_write/_edit/_session_split/_history_tree/_delegate_agent) and are pure single commands with NO shell operators; use shell commands (grep, find, ls, cat, git, npm) for pipes/redirections",
+		description: `Execute a CLI command in the current working directory. Built-in commands are prefixed with an underscore and handled internally (they never fall back to the shell): _read, _write, _edit, _session_split, _history_tree, and (for the main agent) _delegate_agent and _workflow. The underscore prefix avoids collisions with real shell commands (e.g. bash's own read/write builtins). IMPORTANT: built-in commands do NOT support shell operators — no pipes (|), redirects (> <), chaining (; & &&), command substitution, or newlines; issue each as a single pure command. To use a pipeline or redirection, run a plain shell command instead (grep, find, ls, cat, sed, git, npm, etc.). Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB.`,
+		promptSnippet: "Execute CLI commands: built-ins are prefixed with _ (_read/_write/_edit/_session_split/_history_tree/_delegate_agent/_workflow) and are pure single commands with NO shell operators; use shell commands (grep, find, ls, cat, git, npm) for pipes/redirections",
 		parameters: bashSchema,
 		async execute(
 			toolCallId,
@@ -511,8 +521,8 @@ export function createBashToolDefinition(
 			ctx?,
 		) {
 			// Routing policy: a command whose first word is a built-in command name
-			// (read/write/edit/session_split/history_tree/delegate_agent) is ALWAYS handled
-			// by the internal implementation — it never degrades to the shell. Built-ins are
+			// (read/write/edit/session_split/history_tree/delegate_agent/workflow) is ALWAYS
+			// handled by the internal implementation — it never degrades to the shell. Built-ins are
 			// not a shell, so they cannot support shell operators (|, >, <, ;, &, &&,
 			// command substitution, newlines). If such an operator appears (outside quotes /
 			// heredoc), return a clear error guiding toward the plain shell command instead,
@@ -604,6 +614,25 @@ export function createBashToolDefinition(
 							return {
 								content: result.content,
 								details: { builtin: { name: "delegate_agent", args: builtin.input, details: result.details } },
+							};
+						}
+						case "workflow": {
+							if (!workflowDefinition) {
+								return {
+									content: [
+										{
+											type: "text",
+											text: "workflow is only available to the main (persistent) agent. " +
+												"It cannot be used in this workspace.",
+										},
+									],
+									details: undefined,
+								};
+							}
+							const result = await workflowDefinition.execute(toolCallId, builtin.input, signal, undefined, ctx as never);
+							return {
+								content: result.content,
+								details: { builtin: { name: "workflow", args: builtin.input, details: result.details } },
 							};
 						}
 					}

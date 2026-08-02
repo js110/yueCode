@@ -69,9 +69,22 @@ export type ParsedBuiltinToolInput =
 	| {
 			command: "delegate_agent";
 			input: {
-				action: "list" | "run";
+				action: "list" | "run" | "run_all" | "verify" | "verify_all";
 				cwd?: string;
+				cwds?: string[];
 				task?: string;
+				criteria?: string;
+				artifact?: string;
+				timeout?: number;
+				concurrency?: number;
+			};
+	  }
+	| {
+			command: "workflow";
+			input: {
+				action: "save" | "run" | "list" | "show" | "delete";
+				name?: string;
+				definition?: string;
 				timeout?: number;
 			};
 	  };
@@ -154,6 +167,8 @@ export function parseBuiltinToolInput(
 			return { command: "history_tree", input: parseHistoryTreeInput(args) };
 		case "delegate_agent":
 			return { command: "delegate_agent", input: parseDelegateAgentInput(args, heredoc) };
+		case "workflow":
+			return { command: "workflow", input: parseWorkflowInput(args, heredoc) };
 		default:
 			return null;
 	}
@@ -293,7 +308,7 @@ function parseHistoryTreeInput(args: string[]): {
 
 	return { action, session_id: sessionId, query, max_messages: maxMessages, reason };
 }
-const DELEGATE_AGENT_ACTIONS = ["list", "run"] as const;
+const DELEGATE_AGENT_ACTIONS = ["list", "run", "run_all", "verify", "verify_all"] as const;
 type DelegateAgentAction = (typeof DELEGATE_AGENT_ACTIONS)[number];
 
 /**
@@ -301,31 +316,54 @@ type DelegateAgentAction = (typeof DELEGATE_AGENT_ACTIONS)[number];
  *   delegate_agent list
  *   delegate_agent run <cwd> <task>
  *   delegate_agent run --cwd <path> --task "..." [--timeout N]
+ *   delegate_agent run_all <cwd-1> <cwd-2> ... --task "..." [--timeout N] [--concurrency N]
+ *   delegate_agent verify <cwd> <criteria> [--artifact "..."]
+ *   delegate_agent verify_all <cwd-1> <cwd-2> ... --criteria "..." [--artifact "..."]
  *
- * For `run`, the first positional after the action is the cwd and the rest is
- * joined into the task; `--cwd` / `--task` flags override the positionals. A
- * heredoc (when present) supplies the task for `run`.
+ * For `run` / `verify`, the first positional after the action is the cwd and the
+ * rest is joined into the task/criteria; `--cwd` / `--task` / `--criteria`
+ * flags override the positionals. A heredoc (when present) supplies the task
+ * (`run`) or criteria (`verify`).
+ *
+ * For `run_all` / `verify_all`, every positional after the action is a target
+ * cwd, and `--cwd` is repeatable to add more; the task/criteria must come from
+ * the matching flag or a heredoc.
  */
 function parseDelegateAgentInput(args: string[], heredoc?: string): {
 	action: DelegateAgentAction;
 	cwd?: string;
+	cwds?: string[];
 	task?: string;
+	criteria?: string;
+	artifact?: string;
 	timeout?: number;
+	concurrency?: number;
 } {
 	let action: DelegateAgentAction | undefined;
 	let cwd: string | undefined;
 	let task: string | undefined;
+	let criteria: string | undefined;
+	let artifact: string | undefined;
 	let timeout: number | undefined;
+	let concurrency: number | undefined;
+	const cwds: string[] = [];
 	const positional: string[] = [];
 
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
 		if (arg === "--cwd" || arg === "-d") {
 			cwd = args[++i];
+			cwds.push(cwd);
 		} else if (arg === "--task" || arg === "-t") {
 			task = args[++i];
+		} else if (arg === "--criteria" || arg === "-c") {
+			criteria = args[++i];
+		} else if (arg === "--artifact" || arg === "-a") {
+			artifact = args[++i];
 		} else if (arg === "--timeout") {
 			timeout = parseOptionalInt(args[++i]);
+		} else if (arg === "--concurrency") {
+			concurrency = parseOptionalInt(args[++i]);
 		} else {
 			positional.push(arg);
 		}
@@ -345,22 +383,112 @@ function parseDelegateAgentInput(args: string[], heredoc?: string): {
 		throw new Error(`delegate_agent: action required. Valid actions: ${DELEGATE_AGENT_ACTIONS.join(", ")}`);
 	}
 
-	// For `run`, the remaining positionals are <cwd> <task...>.
-	if (action === "run") {
+	if (action === "run" || action === "verify") {
 		const rest = positional.slice(1);
 		if (cwd === undefined && rest.length > 0) {
 			cwd = rest[0];
 		}
-		if (task === undefined) {
+		if (action === "run" && task === undefined) {
 			if (rest.length > 1) {
 				task = rest.slice(1).join(" ");
 			} else if (heredoc !== undefined) {
 				task = heredoc;
 			}
 		}
+		if (action === "verify" && criteria === undefined) {
+			if (rest.length > 1) {
+				criteria = rest.slice(1).join(" ");
+			} else if (heredoc !== undefined) {
+				criteria = heredoc;
+			}
+		}
+		return { action, cwd, task, criteria, artifact, timeout };
 	}
 
-	return { action, cwd, task, timeout };
+	if (action === "run_all" || action === "verify_all") {
+		// Positionals after the action are target cwds; `--cwd` flags (already in
+		// `cwds`) add more. Task/criteria comes from the matching flag or heredoc.
+		const allCwds = [...cwds, ...positional.slice(1)].filter((c) => c !== undefined);
+		if (action === "run_all" && task === undefined && heredoc !== undefined) {
+			task = heredoc;
+		}
+		if (action === "verify_all" && criteria === undefined && heredoc !== undefined) {
+			criteria = heredoc;
+		}
+		return {
+			action,
+			cwds: allCwds.length > 0 ? allCwds : undefined,
+			task,
+			criteria,
+			artifact,
+			timeout,
+			concurrency,
+		};
+	}
+
+	return { action, cwd, task, criteria, artifact, timeout };
+}
+
+const WORKFLOW_ACTIONS = ["save", "run", "list", "show", "delete"] as const;
+type WorkflowAction = (typeof WORKFLOW_ACTIONS)[number];
+
+/**
+ * Parse the `workflow` command's args:
+ *   workflow list
+ *   workflow show <name>
+ *   workflow delete <name>
+ *   workflow save <name> --definition '<json>'
+ *   workflow save <name> <<EOF   (heredoc is the definition JSON)
+ *   workflow run <name> [--timeout N]
+ *   workflow run --definition '<json>' [--timeout N]
+ */
+function parseWorkflowInput(args: string[], heredoc?: string): {
+	action: WorkflowAction;
+	name?: string;
+	definition?: string;
+	timeout?: number;
+} {
+	let action: WorkflowAction | undefined;
+	let name: string | undefined;
+	let definition: string | undefined;
+	let timeout: number | undefined;
+	const positional: string[] = [];
+
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === "--name" || arg === "-n") {
+			name = args[++i];
+		} else if (arg === "--definition" || arg === "-d") {
+			definition = args[++i];
+		} else if (arg === "--timeout") {
+			timeout = parseOptionalInt(args[++i]);
+		} else {
+			positional.push(arg);
+		}
+	}
+
+	if (positional.length > 0 && action === undefined) {
+		const candidate = positional[0].toLowerCase();
+		if (!WORKFLOW_ACTIONS.includes(candidate as WorkflowAction)) {
+			throw new Error(
+				`workflow: unknown action "${positional[0]}". Valid actions: ${WORKFLOW_ACTIONS.join(", ")}`,
+			);
+		}
+		action = candidate as WorkflowAction;
+	}
+
+	if (!action) {
+		throw new Error(`workflow: action required. Valid actions: ${WORKFLOW_ACTIONS.join(", ")}`);
+	}
+
+	if (name === undefined && positional.length > 1) {
+		name = positional[1];
+	}
+	if (definition === undefined && heredoc !== undefined) {
+		definition = heredoc;
+	}
+
+	return { action, name, definition, timeout };
 }
 
 function parseEditInput(args: string[]): { path: string; edits: Edit[] } {
@@ -663,6 +791,49 @@ export function getBuiltinCommandHelp(command: string): string | undefined {
 				"  _delegate_agent run ../other-project <<EOF",
 				"  Refactor the auth module and write a short summary of what changed.",
 				"  EOF",
+				"  _delegate_agent run_all ../proj-a ../proj-b --task \"fix the auth bug and summarize the change\"",
+				"  _delegate_agent run_all ../proj-a ../proj-b --concurrency 4 <<EOF",
+				"  Run the test suite and summarize the failures per project.",
+				"  EOF",
+				"  _delegate_agent verify ../proj-a \"the auth fix lands and all tests pass\"",
+				"  _delegate_agent verify_all ../proj-a ../proj-b --criteria \"all tests pass\" --artifact \"worker summary here\"",
+			].join("\n");
+		case "workflow":
+			return [
+				"_workflow - Save, run, and re-run named sub-agent workflow DAGs",
+				"",
+				"Description:",
+				"  A workflow is a JSON DAG of sub-agent nodes (delegate / verify / synthesize).",
+				"  Each node fans out to one sub-agent per project directory; nodes whose",
+				"  dependencies are satisfied run in parallel. Definitions persist under",
+				"  <agentDir>/workflows/<name>.json, so a saved graph can be re-run by name.",
+				"  Only available to the main (persistent) agent.",
+				"",
+				"Actions:",
+				"  save <name>    Persist a workflow definition (--definition or heredoc JSON).",
+				"  run <name>     Execute a saved workflow.",
+				"  run --definition <json>   Execute an inline workflow without saving.",
+				"  list           Show saved workflows.",
+				"  show <name>    Print a saved workflow definition.",
+				"  delete <name>  Remove a saved workflow.",
+				"",
+				"Node kinds:",
+				"  delegate    Fan a task out to every cwd (requires task).",
+				"  verify      Fresh verifier per cwd that checks criteria (requires criteria).",
+				"  synthesize  One fresh agent reviews all upstream outputs (requires task + 1 cwd).",
+				"",
+				"Parameters:",
+				"  --name, -n         Workflow name (alternative to positional).",
+				"  --definition, -d   Workflow definition as JSON text.",
+				"  --timeout          Default per-sub-agent timeout in ms (default 120000).",
+				"  <<EOF              Heredoc form for the definition JSON.",
+				"  -h, --help         Show this help.",
+				"",
+				"Examples:",
+				"  _workflow list",
+				"  _workflow save fix-auth --definition '{\"name\":\"fix-auth\",\"nodes\":[{\"id\":\"workers\",\"kind\":\"delegate\",\"cwds\":[\"../a\"],\"task\":\"fix the auth bug\"},{\"id\":\"check\",\"kind\":\"verify\",\"cwds\":[\"../a\"],\"criteria\":\"all tests pass\",\"dependsOn\":[\"workers\"]}]}'",
+				"  _workflow run fix-auth",
+				"  _workflow delete fix-auth",
 			].join("\n");
 		default:
 			return undefined;
@@ -884,6 +1055,13 @@ export async function executeBuiltinCommand(
 				exitCode: 1,
 			};
 		}
+		case "workflow": {
+			return {
+				stdout: "",
+				stderr: "workflow requires the main (persistent) agent context and is executed through the cli tool.",
+				exitCode: 1,
+			};
+		}
 
 		default:
 			return {
@@ -894,7 +1072,15 @@ export async function executeBuiltinCommand(
 	}
 }
 
-export const BUILTIN_COMMANDS = ["_read", "_write", "_edit", "_session_split", "_history_tree", "_delegate_agent"] as const;
+export const BUILTIN_COMMANDS = [
+	"_read",
+	"_write",
+	"_edit",
+	"_session_split",
+	"_history_tree",
+	"_delegate_agent",
+	"_workflow",
+] as const;
 export type BuiltinCommand = (typeof BUILTIN_COMMANDS)[number];
 
 // ============================================================================

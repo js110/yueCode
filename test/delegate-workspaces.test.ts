@@ -8,7 +8,12 @@ import {
 	getWorkspaceDir,
 	listKnownWorkspaces,
 } from "../src/core/event-store/workspace.js";
-import { createDelegateAgentToolDefinition } from "../src/core/tools/delegate-agent.js";
+import {
+	buildVerificationPrompt,
+	clampConcurrency,
+	createDelegateAgentToolDefinition,
+	mapWithConcurrency,
+} from "../src/core/tools/delegate-agent.js";
 
 describe("listKnownWorkspaces", () => {
 	let agentDir: string;
@@ -195,6 +200,193 @@ describe("createDelegateAgentToolDefinition", () => {
 		const text = (result.content[0] as { type: string; text: string }).text;
 		expect(text).toContain("delegate_agent to");
 		expect(text).toContain("failed");
+	});
+
+	test("run_all without cwds returns a helpful error (no spawn)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute("call-5", { action: "run_all" }, undefined, undefined, {} as any);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("requires at least one `cwd`");
+	});
+
+	test("run_all without a task returns a helpful error (no spawn)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute(
+			"call-6",
+			{ action: "run_all", cwds: [join(tmpdir(), `some-dir-${Date.now()}`)] },
+			undefined,
+			undefined,
+			{} as any,
+		);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("requires a `task`");
+	});
+
+	test("run_all with non-existent targets returns a fan-out report (no throw)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute(
+			"call-7",
+			{
+				action: "run_all",
+				cwds: [
+					join(tmpdir(), `no-such-a-${Date.now()}`),
+					join(tmpdir(), `no-such-b-${Date.now()}`),
+				],
+				task: "do something",
+				timeout: 1000,
+			},
+			undefined,
+			undefined,
+			{} as any,
+		);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("Fan-out delegation (2 targets");
+		expect(text).toContain("failed");
+		expect(text).toContain("Summary: 0 ok, 2 failed");
+	});
+
+	test("verify without criteria returns a helpful error (no spawn)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute(
+			"call-8",
+			{ action: "verify", cwd: join(tmpdir(), `some-dir-${Date.now()}`) },
+			undefined,
+			undefined,
+			{} as any,
+		);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("requires `criteria`");
+	});
+
+	test("verify without cwd returns a helpful error (no spawn)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute("call-9", { action: "verify", criteria: "tests pass" }, undefined, undefined, {} as any);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("requires a `cwd`");
+	});
+
+	test("verify with a non-existent target returns an error result (no throw)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute(
+			"call-10",
+			{ action: "verify", cwd: join(tmpdir(), `no-such-v-${Date.now()}`), criteria: "tests pass", timeout: 1000 },
+			undefined,
+			undefined,
+			{} as any,
+		);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("verification of");
+		expect(text).toContain("failed");
+	});
+
+	test("verify_all without criteria returns a helpful error (no spawn)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute("call-11", { action: "verify_all" }, undefined, undefined, {} as any);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("requires `criteria`");
+	});
+
+	test("verify_all without cwds returns a helpful error (no spawn)", async () => {
+		const def = createDelegateAgentToolDefinition({ agentDir });
+		const result = await def.execute(
+			"call-12",
+			{ action: "verify_all", criteria: "tests pass" },
+			undefined,
+			undefined,
+			{} as any,
+		);
+
+		expect(result.content).toHaveLength(1);
+		const text = (result.content[0] as { type: string; text: string }).text;
+		expect(text).toContain("requires at least one `cwd`");
+	});
+});
+
+describe("buildVerificationPrompt", () => {
+	test("frames the verifier role, includes criteria, and demands a structured verdict", () => {
+		const prompt = buildVerificationPrompt("all tests pass", "worker changed auth.ts");
+		expect(prompt).toContain("verification agent");
+		expect(prompt).toContain("Do NOT modify code");
+		expect(prompt).toContain("CRITERIA:");
+		expect(prompt).toContain("all tests pass");
+		expect(prompt).toContain("WORKER OUTPUT TO CHECK:");
+		expect(prompt).toContain("worker changed auth.ts");
+		expect(prompt).toContain("VERDICT: PASS | PARTIAL | FAIL");
+	});
+
+	test("omits the worker-output section when no artifact is provided", () => {
+		const prompt = buildVerificationPrompt("all tests pass");
+		expect(prompt).not.toContain("WORKER OUTPUT TO CHECK:");
+	});
+});
+
+describe("mapWithConcurrency", () => {
+	test("preserves input order and respects the concurrency cap", async () => {
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const results = await mapWithConcurrency(
+			[1, 2, 3, 4, 5],
+			2,
+			async (n) => {
+				inFlight++;
+				maxInFlight = Math.max(maxInFlight, inFlight);
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				inFlight--;
+				return n * 10;
+			},
+		);
+		expect(results).toEqual([10, 20, 30, 40, 50]);
+		expect(maxInFlight).toBe(2);
+	});
+
+	test("returns [] for no items", async () => {
+		const results = await mapWithConcurrency([], 4, async (n: number) => n);
+		expect(results).toEqual([]);
+	});
+
+	test("stops claiming items once the signal is aborted", async () => {
+		const controller = new AbortController();
+		const processed: number[] = [];
+		const results = await mapWithConcurrency(
+			[1, 2, 3, 4],
+			1,
+			async (n) => {
+				processed.push(n);
+				if (n === 2) controller.abort();
+				return n;
+			},
+			controller.signal,
+		);
+		expect(processed).toEqual([1, 2]);
+		expect(results[0]).toBe(1);
+		expect(results[1]).toBe(2);
+		expect(results.slice(2).every((r) => r === undefined)).toBe(true);
+	});
+});
+
+describe("clampConcurrency", () => {
+	test("defaults to 8 and clamps into 1..16", () => {
+		expect(clampConcurrency(undefined)).toBe(8);
+		expect(clampConcurrency(NaN)).toBe(8);
+		expect(clampConcurrency(0)).toBe(1);
+		expect(clampConcurrency(-3)).toBe(1);
+		expect(clampConcurrency(4)).toBe(4);
+		expect(clampConcurrency(100)).toBe(16);
+		expect(clampConcurrency(2.9)).toBe(2);
 	});
 });
 

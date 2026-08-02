@@ -435,7 +435,7 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("should show help for built-in commands", async () => {
-			for (const command of ["_read", "_write", "_edit", "_session_split", "_history_tree", "_delegate_agent"]) {
+			for (const command of ["_read", "_write", "_edit", "_session_split", "_history_tree", "_delegate_agent", "_workflow"]) {
 				const result = await bashTool.execute(`test-help-${command}`, { command: `${command} -h` });
 				const output = getTextOutput(result);
 
@@ -482,6 +482,33 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("_delegate_agent -");
 			expect(output).toContain("Actions:");
 			expect(output).toContain("run <cwd> <task>");
+		});
+
+		it("should report workflow is unavailable when the cli tool has no workflow option", async () => {
+			// Non-main-agent cli tool: workflow is recognized but not wired up.
+			const tool = createBashTool(process.cwd());
+			const result = await tool.execute("test-no-workflow", { command: "_workflow run fix-auth" });
+			const output = getTextOutput(result);
+			expect(output).toContain("only available to the main");
+		});
+
+		it("should route workflow list through the cli tool when the workflow option is set", async () => {
+			// Main-agent-style cli tool: workflow routes to the workflow definition.
+			const tool = createBashTool(process.cwd(), { workflow: { agentDir: "/tmp/no-such-agent-dir" } });
+			const result = await tool.execute("test-workflow-list", { command: "_workflow list" });
+			const output = getTextOutput(result);
+			expect(output).toContain("No saved workflows found");
+			expect(result.details?.builtin?.name).toBe("workflow");
+		});
+
+		it("should route workflow run --help to the help text through the cli tool", async () => {
+			const tool = createBashTool(process.cwd());
+			const result = await tool.execute("test-workflow-help", { command: "_workflow -h" });
+			const output = getTextOutput(result);
+			expect(output).toContain("_workflow -");
+			expect(output).toContain("Actions:");
+			expect(output).toContain("Node kinds:");
+			expect(output).toContain("save <name>");
 		});
 
 		it("should reject shell operators on built-in commands instead of falling back to the shell", async () => {

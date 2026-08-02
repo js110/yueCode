@@ -48,6 +48,7 @@ import { createHistoryTreeToolDefinition } from "./tools/history-tree.js";
 import { buildSessionBreadcrumb } from "./projection/history-tree.js";
 import { createSessionSplitToolDefinition } from "./tools/session-split.js";
 import { createDelegateAgentToolDefinition } from "./tools/delegate-agent.js";
+import { createWorkflowToolDefinition } from "./tools/workflow.js";
 import { wrapToolDefinitions } from "./tools/tool-definition-wrapper.js";
 
 export interface CreateSessionFacadeOptions {
@@ -329,10 +330,12 @@ export async function createSessionFacade(
 	const shellPath = settingsManager.getShellPath();
 	const autoResizeImages = settingsManager.getImageAutoResize();
 	const cliToolOptions: BashToolOptions = { commandPrefix: shellCommandPrefix, shellPath, read: { autoResizeImages } };
-	// The `delegate_agent` built-in command is wired into the cli tool only for the
-	// main agent (it needs the agent dir to spawn sub-agents / list workspaces).
+	// The `delegate_agent` / `workflow` built-in commands are wired into the cli
+	// tool only for the main agent (they need the agent dir to spawn sub-agents,
+	// list workspaces, and persist/load workflow definitions).
 	if (isMainAgent) {
 		cliToolOptions.delegateAgent = { agentDir, mainDir };
+		cliToolOptions.workflow = { agentDir, mainDir };
 	}
 	const toolOptions = {
 		read: { autoResizeImages },
@@ -401,10 +404,10 @@ export async function createSessionFacade(
 			}
 		}
 
-		// read/write/edit/session_split/history_tree/(delegate_agent) are built-in
-		// cli commands routed internally by the cli tool, not separate tools; ensure
-		// their prompt guidelines are included whenever the cli tool is active, so the
-		// model sees how to use each built-in under the single cli tool.
+		// read/write/edit/session_split/history_tree/(delegate_agent)/(workflow) are
+		// built-in cli commands routed internally by the cli tool, not separate tools;
+		// ensure their prompt guidelines are included whenever the cli tool is active,
+		// so the model sees how to use each built-in under the single cli tool.
 		if (definitions.some((definition) => definition.name === "cli" || definition.name === "bash")) {
 			// Only promptGuidelines is consumed below; type loosely to avoid
 			// renderCall contravariance between the concrete tool definitions.
@@ -417,6 +420,7 @@ export async function createSessionFacade(
 			];
 			if (isMainAgent && agentDir) {
 				builtinDefs.push(createDelegateAgentToolDefinition({ agentDir, mainDir }));
+				builtinDefs.push(createWorkflowToolDefinition({ agentDir, mainDir }));
 			}
 			for (const builtinDef of builtinDefs) {
 				for (const guideline of builtinDef.promptGuidelines ?? []) {
