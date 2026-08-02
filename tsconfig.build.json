@@ -1,0 +1,35 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "Node16",
+		"lib": ["ES2022"],
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"declaration": true,
+		"declarationMap": false,
+		"sourceMap": false,
+		"inlineSources": false,
+		"inlineSourceMap": false,
+		"moduleResolution": "Node16",
+		"resolveJsonModule": true,
+		"allowImportingTsExtensions": false,
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
+		"useDefineForClassFields": false,
+		"types": ["node"],
+		"outDir": "./dist",
+		"rootDir": ".",
+		"baseUrl": ".",
+		"paths": {
+			"@yue/protocol": ["./packages/protocol/index.ts"],
+			"@yue/http-bridge": ["./packages/http-bridge/server.ts"],
+			"@yue/rpc": ["./packages/rpc/rpc-mode.ts"],
+			"@yue/tui": ["./packages/tui/interactive-mode.ts"],
+			"@yue/cli": ["./packages/cli/args.ts"]
+		}
+	},
+	"include": ["src/**/*.ts", "packages/protocol/index.ts", "packages/http-bridge/server.ts", "packages/rpc/*.ts", "packages/tui/**/*.ts", "packages/cli/*.ts"],
+	"exclude": ["node_modules", "dist", "**/*.d.ts", "src/**/*.d.ts"]
+}

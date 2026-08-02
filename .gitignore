@@ -1,0 +1,59 @@
+*.bun-build
+.DS_Store
+node_modules/
+dist/
+*.log
+.DS_Store
+*.tsbuildinfo
+# Ignore all .target directories
+*/.target/
+# packages/*/node_modules/
+packages/*/dist/
+packages/*/dist-chrome/
+packages/*/dist-firefox/
+*.cpuprofile
+*.tgz
+
+# Environment
+.env
+package
+
+# Editor files
+.vscode/
+.zed/
+.idea/
+*.swp
+*.swo
+*~
+
+# Package specific
+.npm/
+coverage/
+.nyc_output/
+.yue_config/
+tui-debug.log
+compaction-results/
+.opencode/
+syntax.jsonl
+out.jsonl
+pi-*.html
+out.html
+packages/coding-agent/binaries/
+todo.md
+plans/
+.yue/hf-sessions/
+.yue/hf-sessions-backup/
+collect.sh
+
+# Downloaded vendor tool archives
+.vendor-tools/
+# Staged platform-specific vendor binaries for desktop bundle
+/apps/desktop/vendor-bin/
+/apps/desktop/prebuilds-bin/
+/apps/desktop/target/
+docs/
+
+# Local AI agent / Claude convention files (kept on disk for the local
+# tooling to read, but never tracked or pushed to PRs)
+/AGENTS.md
+/CLAUDE.md
