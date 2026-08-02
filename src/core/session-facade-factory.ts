@@ -741,7 +741,13 @@ export async function createSessionFacade(
 		modelRegistry,
 		extensionRunner,
 		resourceLoader,
-		disposers: [extensionEventUnsubscribe],
+		disposers: [
+			extensionEventUnsubscribe,
+			// Close the event store we created so file-backed sessions release
+			// their SQLite handle. Without this, an open handle keeps the DB file
+			// locked on Windows (and the handle is never reclaimed in-process).
+			() => store.close(),
+		],
 	});
 
 	return { facade, runtime, model, thinkingLevel, extensionsResult, modelFallbackMessage };

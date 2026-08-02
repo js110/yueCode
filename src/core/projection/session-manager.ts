@@ -186,8 +186,11 @@ export class SessionManager {
 
 		const forked = this.createSession("fork", source.name, {
 			parentSessionId: source.session_id,
-			contextParentSessionId: preserveHistory ? source.session_id : undefined,
-			startEventId: preserveHistory ? this.store.head ?? forkAtEventId : forkAtEventId,
+			// Preserving history means the fork reuses the source's start boundary
+			// (so its conversation remains in context); otherwise it starts at the
+			// fork point. The fork is a visible branch (parent link only), not a
+			// hidden continuation, so no context_parent_session_id is set.
+			startEventId: preserveHistory ? source.event_range.start_event_id : forkAtEventId,
 			summaryEventId: source.summary_event_id,
 			threadId: source.thread_id,
 		});

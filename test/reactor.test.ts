@@ -189,6 +189,9 @@ describe("Reactor (event-driven core)", () => {
 		expect(capturedPrompt).not.toContain(stale.session_id);
 
 		runtime.dispose();
+		// Close the file-backed store so the temp dir can be removed on Windows
+		// (an open SQLite handle would otherwise hold a lock on events.sqlite).
+		store.close();
 	});
 
 	it("passes tool execution context through the runtime and emits updates", async () => {

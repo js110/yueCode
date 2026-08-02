@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SqliteEventStore } from "../src/core/event-store/sqlite-store.js";
+import { deriveWorkspaceId } from "../src/core/event-store/workspace.js";
 import type { ContentBlock, EventBase } from "../src/core/event-store/types.js";
 import type { ToolRegistry } from "../src/core/intent/types.js";
 import type { ModelRegistry } from "../src/core/model-registry.js";
@@ -94,7 +95,7 @@ function makeTextResponse(text: string): LLMResponse {
 
 function createFacade(client?: LLMClient, modelRegistry?: ModelRegistry): SessionFacade {
 	const cwd = makeTempDir();
-	const store = new SqliteEventStore(`rpc-facade-${Date.now()}`, join(cwd, "events.sqlite"));
+	const store = new SqliteEventStore(deriveWorkspaceId(cwd), join(cwd, "events.sqlite"));
 	const sessionManager = new SessionManager(store, store);
 	sessionManager.createSession("user_explicit", "Initial");
 	const runtime = new EventSourcedRuntime({
@@ -287,7 +288,7 @@ describe("runRpcModeWithFacade", () => {
 
 		const manager = facade.runtime.sessionManager!;
 		const sessionA = manager.getActiveSessionId()!;
-		const workspaceId = facade.getProjection().getDescriptor().workspace_id;
+		const workspaceId = facade.runtime.cwd;
 
 		rpcIo.outputLines = [];
 		rpcIo.lineHandler!(JSON.stringify({ id: "new-b", type: "new_session" }));

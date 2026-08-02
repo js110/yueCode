@@ -38,6 +38,7 @@ export class SqliteEventStore implements EventStore, SessionStore {
 	private sessionStore: SqliteSessionStore;
 
 	private _nextSequence = 0;
+	private closed = false;
 
 	readonly workspace_id: string;
 
@@ -242,6 +243,8 @@ export class SqliteEventStore implements EventStore, SessionStore {
 	}
 
 	close(): void {
+		if (this.closed) return;
+		this.closed = true;
 		this.db.close();
 	}
 

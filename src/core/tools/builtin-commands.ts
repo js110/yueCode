@@ -111,7 +111,9 @@ export function parseBuiltinCommandWithHeredoc(input: string): ParsedBuiltinComm
 	}
 	
 	const [, prefix, , , content] = heredocMatch;
-	const parts = splitShellWords(prefix.trim());
+	// Heredoc args are filesystem paths (and a command name); keep backslashes
+	// literal so Windows `C:\Users\...` paths survive POSIX-style escaping.
+	const parts = splitShellWords(prefix.trim(), { preserveBackslash: true });
 	
 	return {
 		command: parts[0],

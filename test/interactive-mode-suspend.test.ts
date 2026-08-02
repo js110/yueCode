@@ -94,22 +94,37 @@ describe("InteractiveMode.handleCtrlZ", () => {
 			.mockImplementation(((_event: string, _listener: () => void) => process) as typeof process.removeListener);
 		const processKillSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
 
-		callHandleCtrlZ(context);
+		// The suspend path only runs off-Windows; force a POSIX platform so the
+		// assertions exercise it regardless of the host (this test targets the
+		// suspension/resume flow, not the win32 skip).
+		const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+		try {
+			Object.defineProperty(process, "platform", {
+				configurable: true,
+				value: "linux",
+			});
 
-		expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 2 ** 30);
-		expect(processOnSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
-		expect(processOnceSpy).toHaveBeenCalledWith("SIGCONT", expect.any(Function));
-		expect(ui.stop).toHaveBeenCalledTimes(1);
-		expect(processKillSpy).toHaveBeenCalledWith(0, "SIGTSTP");
-		expect(sigintHandler).toBeDefined();
-		expect(sigcontHandler).toBeDefined();
+			callHandleCtrlZ(context);
 
-		sigcontHandler?.();
+			expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 2 ** 30);
+			expect(processOnSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+			expect(processOnceSpy).toHaveBeenCalledWith("SIGCONT", expect.any(Function));
+			expect(ui.stop).toHaveBeenCalledTimes(1);
+			expect(processKillSpy).toHaveBeenCalledWith(0, "SIGTSTP");
+			expect(sigintHandler).toBeDefined();
+			expect(sigcontHandler).toBeDefined();
 
-		expect(clearIntervalSpy).toHaveBeenCalledWith(keepAliveHandle);
-		expect(removeListenerSpy).toHaveBeenCalledWith("SIGINT", sigintHandler);
-		expect(ui.start).toHaveBeenCalledTimes(1);
-		expect(ui.requestRender).toHaveBeenCalledWith(true);
+			sigcontHandler?.();
+
+			expect(clearIntervalSpy).toHaveBeenCalledWith(keepAliveHandle);
+			expect(removeListenerSpy).toHaveBeenCalledWith("SIGINT", sigintHandler);
+			expect(ui.start).toHaveBeenCalledTimes(1);
+			expect(ui.requestRender).toHaveBeenCalledWith(true);
+		} finally {
+			if (platformDescriptor) {
+				Object.defineProperty(process, "platform", platformDescriptor);
+			}
+		}
 	});
 
 	test("cleans up the temporary handlers if suspension fails", () => {
@@ -138,12 +153,24 @@ describe("InteractiveMode.handleCtrlZ", () => {
 			throw suspendError;
 		});
 
-		expect(() => callHandleCtrlZ(context)).toThrow(suspendError);
-		expect(ui.stop).toHaveBeenCalledTimes(1);
-		expect(setIntervalSpy).toHaveBeenCalledTimes(1);
-		expect(clearIntervalSpy).toHaveBeenCalledWith(keepAliveHandle);
-		expect(removeListenerSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
-		expect(ui.start).not.toHaveBeenCalled();
-		expect(ui.requestRender).not.toHaveBeenCalled();
+		const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+		try {
+			Object.defineProperty(process, "platform", {
+				configurable: true,
+				value: "linux",
+			});
+
+			expect(() => callHandleCtrlZ(context)).toThrow(suspendError);
+			expect(ui.stop).toHaveBeenCalledTimes(1);
+			expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+			expect(clearIntervalSpy).toHaveBeenCalledWith(keepAliveHandle);
+			expect(removeListenerSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+			expect(ui.start).not.toHaveBeenCalled();
+			expect(ui.requestRender).not.toHaveBeenCalled();
+		} finally {
+			if (platformDescriptor) {
+				Object.defineProperty(process, "platform", platformDescriptor);
+			}
+		}
 	});
 });

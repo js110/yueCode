@@ -11,7 +11,18 @@
  *
  * Whitespace outside quotes separates words.
  */
-export function splitShellWords(input: string): string[] {
+export interface SplitShellWordsOptions {
+	/**
+	 * When true, a backslash is always kept literally (never escapes the next
+	 * character), in both unquoted and double-quoted contexts. Quotes still
+	 * group words. Use for command forms whose arguments are filesystem paths,
+	 * where POSIX escaping would mangle Windows-style `C:\Users\...` paths.
+	 */
+	preserveBackslash?: boolean;
+}
+
+export function splitShellWords(input: string, options: SplitShellWordsOptions = {}): string[] {
+	const { preserveBackslash = false } = options;
 	const words: string[] = [];
 	let current = "";
 	// Active quote context: undefined (unquoted), "'" (single), or '"' (double).
@@ -37,6 +48,11 @@ export function splitShellWords(input: string): string[] {
 		}
 
 		if (quote === '"') {
+			if (preserveBackslash && char === "\\") {
+				// Backslash is literal even inside double quotes.
+				current += "\\";
+				continue;
+			}
 			// Double quote: backslash is special only before $ ` " \ and newline.
 			if (char === "\\" && next !== undefined && doubleEscapable.has(next)) {
 				current += next;
@@ -51,6 +67,10 @@ export function splitShellWords(input: string): string[] {
 
 		// Unquoted.
 		if (char === "\\") {
+			if (preserveBackslash) {
+				current += "\\";
+				continue;
+			}
 			if (next !== undefined) {
 				current += next;
 				i++;
